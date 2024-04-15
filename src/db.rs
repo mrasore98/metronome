@@ -1,20 +1,17 @@
+pub(crate) mod filters;
 mod tasktime;
 
-use std::fmt::format;
-use std::string::ToString;
-use chrono::{DateTime, Local, NaiveDateTime};
-use rusqlite::{Connection, params, Rows};
-use rusqlite::types::Value::Null;
+use chrono::{DateTime, Local, TimeDelta};
+use rusqlite::{params, Connection, Rows, Statement};
 
+use filters::Filter;
 use tasktime::TaskTime;
 
 pub const DB_NAME: &str = "tasks.db";
-pub const TABLE_NAME: &str = "tasks";
-
 
 pub fn create_task_table(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute(
-        format!("CREATE TABLE IF NOT EXISTS {} (\
+        "CREATE TABLE IF NOT EXISTS tasks (\
         id INTEGER PRIMARY KEY NOT NULL, \
         name TEXT NOT NULL, \
         start_time INTEGER NOT NULL, \
@@ -22,18 +19,18 @@ pub fn create_task_table(connection: &Connection) -> rusqlite::Result<()> {
         total_time INTEGER, \
         category TEXT NOT NULL, \
         status TEXT NOT NULL\
-        )", TABLE_NAME).as_str()
-        ,
-        ()
+        )",
+        (),
     )?;
     Ok(())
 }
 
 // START FUNCTIONS
-pub fn start_task(connection: &Connection,
-                  task_name: &String,
-                  category: Option<&String>) -> rusqlite::Result<()> {
-
+pub fn start_task(
+    connection: &Connection,
+    task_name: &String,
+    category: Option<&String>,
+) -> rusqlite::Result<()> {
     // Task start time
     let start_time_dt = Local::now();
 
@@ -44,37 +41,46 @@ pub fn start_task(connection: &Connection,
     let status = "Active";
 
     connection.execute(
-        format!("INSERT INTO {} (name, start_time, category, status) VALUES\
-        (?1, ?2, ?3, ?4)", TABLE_NAME).as_str(),
-        params![task_name, start_time, category, status]
+        "INSERT INTO tasks (name, start_time, category, status) VALUES\
+        (?1, ?2, ?3, ?4)",
+        params![task_name, start_time, category, status],
     )?;
 
-    println!("Task \"{}\" started at {}!", task_name, start_time_dt.format("%c"));
+    println!(
+        "Task \"{}\" started at {}!",
+        task_name,
+        start_time_dt.format("%c")
+    );
 
     Ok(())
 }
-
 
 // END FUNCTIONS
 pub fn end_task(connection: &Connection, task_name: &String) -> rusqlite::Result<()> {
     let end_time_dt = Local::now();
     let end_time = end_time_dt.timestamp();
 
-    println!("Ending task \"{}\" at {}", task_name,
-             end_time_dt.format("%c"));
-    let mut stmt = connection.prepare(
-        format!("SELECT start_time FROM {} WHERE name = ?", TABLE_NAME).as_str())?;
+    println!(
+        "Ending task \"{}\" at {}",
+        task_name,
+        end_time_dt.format("%c")
+    );
+    let mut stmt = connection.prepare("SELECT start_time FROM tasks WHERE name = ?")?;
 
     let start_time: i64 = stmt.query_row(params![task_name], |row| row.get(0))?;
     let total_time = end_time - start_time;
     let status = "Complete";
 
     connection.execute(
-        format!("UPDATE {} SET end_time = ?1, total_time = ?2, status = ?3 WHERE name = ?4",
-                TABLE_NAME).as_str(),
-        params![end_time, total_time, status, task_name])?;
+        "UPDATE tasks SET end_time = ?1, total_time = ?2, status = ?3 WHERE name = ?4",
+        params![end_time, total_time, status, task_name],
+    )?;
 
-    println!("Task \"{}\" ended after {}", task_name, TaskTime::from(total_time));
+    println!(
+        "Task \"{}\" ended after {}",
+        task_name,
+        TaskTime::from(total_time)
+    );
 
     Ok(())
 }
@@ -86,14 +92,13 @@ pub fn end_all_active(connection: &Connection) -> rusqlite::Result<()> {
 
     // Update the end time for use in calculating total time
     connection.execute(
-        format!("UPDATE {} SET end_time = ?1 WHERE status = 'Active'",
-                TABLE_NAME).as_str(),
-        params![end_time])?;
+        "UPDATE tasks SET end_time = ?1 WHERE status = 'Active'",
+        params![end_time],
+    )?;
 
     // Update total time and set status to complete
     connection.execute(
-        format!("UPDATE {} SET total_time = (end_time - start_time), status = ?1 WHERE status = 'Active'",
-                TABLE_NAME).as_str(),
+"UPDATE tasks SET total_time = (end_time - start_time), status = ?1 WHERE status = 'Active'",
     params![status])?;
 
     // TODO add count of active tasks
@@ -104,48 +109,62 @@ pub fn end_all_active(connection: &Connection) -> rusqlite::Result<()> {
 
 // LIST FUNCTIONS
 
-fn list_from_stmt(mut stmt: rusqlite::Statement) -> rusqlite::Result<()> {
-    let rows = stmt.query(())?;
+fn list_from_stmt(mut stmt: Statement, filter_start_time: i64) -> rusqlite::Result<()> {
+    let rows = stmt.query(params![filter_start_time])?;
     print_list_rows(rows)?;
 
     Ok(())
 }
-pub fn list_active(connection: &Connection, filter: Option<&String>) -> rusqlite::Result<()> {
+pub fn list_active(connection: &Connection, filter: Filter) -> rusqlite::Result<()> {
+    let start_time = parse_filter(filter);
     let stmt = connection.prepare(
-        format!("SELECT * from {} WHERE status = 'Active'", TABLE_NAME).as_str())?;
-    return list_from_stmt(stmt);
+        "SELECT * from tasks WHERE status = 'Active' \
+         AND start_time > ?1",
+    )?;
+    return list_from_stmt(stmt, start_time);
 }
 
-pub fn list_complete(connection: &Connection, filter: Option<&String>) -> rusqlite::Result<()> {
+pub fn list_complete(connection: &Connection, filter: Filter) -> rusqlite::Result<()> {
+    let start_time = parse_filter(filter);
     let stmt = connection.prepare(
-        format!("SELECT * from {} WHERE status = 'Complete'", TABLE_NAME).as_str())?;
-    return list_from_stmt(stmt);
+        "SELECT * from tasks WHERE status = 'Complete' \
+        AND start_time > ?1",
+    )?;
+    return list_from_stmt(stmt, start_time);
 }
 
-pub fn list_all(connection: &Connection, filter: Option<&String>) -> rusqlite::Result<()> {
-    let stmt = connection.prepare(
-        format!("SELECT * from {}",TABLE_NAME).as_str())?;
-    return list_from_stmt(stmt);
+pub fn list_all(connection: &Connection, filter: Filter) -> rusqlite::Result<()> {
+    let start_time = parse_filter(filter);
+    let stmt = connection.prepare("SELECT * from tasks WHERE start_time > ?1")?;
+
+    return list_from_stmt(stmt, start_time);
 }
 
 // TOTAL FUNCTIONS
-pub fn sum_task_times(connection: &Connection, filter:Option<&String>, category: Option<&String>)
-    -> rusqlite::Result<()> {
-    // TODO implement filters and categories
-    let mut sql_stmt = format!("SELECT category, SUM(total_time) FROM {} GROUP BY category ORDER BY SUM(total_time) DESC", TABLE_NAME);
-    // let category_is_some = category.is_some();
-    // if category_is_some {
-    //     sql_stmt += " WHERE category = ?1";
-    // }
-    // if filter.is_some() {
-    //     sql_stmt += if category_is_some {" AND"} else {""};
-    //     sql_stmt += format!(" WHERE start_time > ?{}", if category_is_some {2} else {1}).as_str();
-    // }
-    let mut stmt = connection.prepare(sql_stmt.as_str())?;
-    // let rows = stmt.query(
-    //     params![category.unwrap_or_else(|| ()), filter.unwrap_or_else(||)]
-    // )?;
-    let mut rows = stmt.query(())?;
+pub fn sum_task_times(
+    connection: &Connection,
+    filter: Filter,
+    category: Option<&String>,
+) -> rusqlite::Result<()> {
+    let mut stmt: Statement;
+    let rows: Rows;
+    let start_time = parse_filter(filter);
+    match category {
+        Some(category) => {
+            stmt = connection.prepare(
+                "SELECT category, SUM(total_time) FROM tasks WHERE start_time > ?1 AND category = ?2 \
+                GROUP BY category ORDER BY SUM(total_time) DESC"
+            )?;
+            rows = stmt.query(params![start_time, category])?;
+        }
+        None => {
+            stmt = connection.prepare(
+                "SELECT category, SUM(total_time) FROM tasks WHERE start_time > ?1 \
+                GROUP BY category ORDER BY SUM(total_time) DESC",
+            )?;
+            rows = stmt.query(params![start_time])?;
+        }
+    }
 
     // Print results
     print_total_time_rows(rows)?;
@@ -155,20 +174,39 @@ pub fn sum_task_times(connection: &Connection, filter:Option<&String>, category:
 
 // HELPER FUNCTIONS
 
-/// Parses a filter string to use for limiting the number of rows returned.
-fn parse_filter(filter: Option<&String>) -> Option<DateTime<Local>> {
-    todo!()
+fn parse_filter(filter: Filter) -> i64 {
+    let timedelta = match filter {
+        Filter::Day => TimeDelta::days(1),
+        Filter::Week => TimeDelta::weeks(1),
+        Filter::Month => TimeDelta::days(30),
+        Filter::Quarter => TimeDelta::weeks(13),
+        Filter::SemiAnnual => TimeDelta::weeks(26),
+        Filter::Year => TimeDelta::days(365),
+        _ => TimeDelta::zero(), // need a time delta to match type but will not be used
+    };
+
+    if !timedelta.is_zero() {
+        (Local::now() - timedelta).timestamp()
+    } else {
+        0
+    }
 }
 
-fn print_list_rows(mut rows: Rows) -> rusqlite::Result<()>{
-
+fn print_list_rows(mut rows: Rows) -> rusqlite::Result<()> {
     // Status does not seem necessary since active tasks will have NULL end times and total times
-    let headers =
-        ("ID", "TASK", "START TIME", "END TIME", "TOTAL TIME", "CATEGORY");
+    let headers = (
+        "ID",
+        "TASK",
+        "START TIME",
+        "END TIME",
+        "TOTAL TIME",
+        "CATEGORY",
+    );
 
-
-    println!("| {:^4} | {:^40} | {:^30} | {:^30} | {:^15} | {:^20} |",
-             headers.0, headers.1, headers.2, headers.3, headers.4, headers.5);
+    println!(
+        "| {:^4} | {:^40} | {:^30} | {:^30} | {:^15} | {:^20} |",
+        headers.0, headers.1, headers.2, headers.3, headers.4, headers.5
+    );
     println!("{}", "=".repeat(158));
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
@@ -189,21 +227,22 @@ fn print_list_rows(mut rows: Rows) -> rusqlite::Result<()>{
                 DateTime::from_timestamp(end_time_nix.unwrap(), 0)
                     .unwrap()
                     .naive_local()
-                    .format("%c").to_string()
-            }
-            else {
+                    .format("%c")
+                    .to_string()
+            } else {
                 "NULL".to_string()
             }
         };
 
         let total_time = match total_time_s {
             Some(time_s) => TaskTime::from(time_s).to_string(),
-            None => "NULL".to_string()
+            None => "NULL".to_string(),
         };
 
-        println!("| {:^4} | {:^40} | {:^30} | {:^30} | {:^15} | {:^20} |",
-                 id, task, start_time, end_time, total_time, category);
-
+        println!(
+            "| {:^4} | {:^40} | {:^30} | {:^30} | {:^15} | {:^20} |",
+            id, task, start_time, end_time, total_time, category
+        );
     }
 
     Ok(())
@@ -214,7 +253,7 @@ fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<()> {
     println!("| {:^20} | {:^15} |", headers.0, headers.1);
     println!("{}", "=".repeat(42));
 
-    while let Some(row) = rows.next()?  {
+    while let Some(row) = rows.next()? {
         let category: String = row.get(0)?;
         let total_time_s: i64 = row.get(1)?;
 
@@ -226,6 +265,3 @@ fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<()> {
 
     Ok(())
 }
-
-
-
