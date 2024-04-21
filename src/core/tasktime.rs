@@ -1,5 +1,6 @@
 use std::fmt::Display;
 
+#[derive(Debug, PartialEq)]
 pub struct TaskTime {
     hours: i64,
     minutes: i64,
@@ -17,14 +18,17 @@ impl From<i64> for TaskTime {
         Self {
             hours,
             minutes,
-            seconds
+            seconds,
         }
     }
 }
 
 impl Display for TaskTime {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", format!("{}h {}m {}s", self.hours, self.minutes, self.seconds))
+        write!(
+            f,
+            "{}",
+            format!("{}h {}m {}s", self.hours, self.minutes, self.seconds)
+        )
     }
-
 }
