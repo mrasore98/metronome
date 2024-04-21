@@ -4,7 +4,6 @@ mod tasktime;
 use chrono::{DateTime, Local, TimeDelta};
 use fallible_streaming_iterator::FallibleStreamingIterator; // Needed to count returned SQLite Rows
 use rusqlite::{params, Connection, Rows, Statement};
-use strum::IntoEnumIterator; // For iterating through Filter enums in testing
 
 use self::MetronomeResults::{CreateTable, EndTask, List, StartTask, SumTaskTimes};
 use filters::Filter;
@@ -96,6 +95,15 @@ pub fn end_task(connection: &Connection, task_name: &String) -> rusqlite::Result
     Ok(EndTask(end_time, total_time, task_time))
 }
 
+pub fn end_last(connection: &Connection) -> rusqlite::Result<MetronomeResults> {
+    let last_task: String = connection.query_row(
+        "SELECT name FROM tasks WHERE start_time = (SELECT MAX(start_time) FROM tasks WHERE status = 'Active')",
+        (),
+        |row| row.get(0),
+    )?;
+    end_task(&connection, &last_task)
+}
+
 pub fn end_all_active(connection: &Connection) -> rusqlite::Result<MetronomeResults> {
     let end_time_dt = Local::now();
     let end_time = end_time_dt.timestamp();
@@ -160,7 +168,6 @@ pub fn list_complete(
 
 pub fn list_all(connection: &Connection, filter: Filter) -> rusqlite::Result<MetronomeResults> {
     let start_time = parse_filter(filter);
-    println!("Filter start time: {}", start_time);
     let stmt = connection.prepare("SELECT * from tasks WHERE start_time > ?1")?;
 
     return list_from_stmt(stmt, start_time);
@@ -299,6 +306,7 @@ fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<()> {
 mod tests {
     use super::*;
     use rusqlite::Connection;
+    use strum::IntoEnumIterator; // For iterating through Filter enums in testing
 
     fn setup() -> rusqlite::Result<Connection> {
         let conn = Connection::open("unit_tests.db")?;

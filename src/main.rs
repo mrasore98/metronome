@@ -17,12 +17,13 @@ fn main() -> rusqlite::Result<()> {
             core::start_task(&conn, task, category)
         }
         Some(("end", sub_args)) => {
-            match sub_args.get_flag("all") {
-                true => core::end_all_active(&conn),
-                false => {
-                    let task: &String = sub_args.get_one("task").unwrap(); // required argument
-                    core::end_task(&conn, task)
-                }
+            if sub_args.get_flag("all") {
+                core::end_all_active(&conn)
+            } else if sub_args.get_flag("last") {
+                core::end_last(&conn)
+            } else {
+                let task: &String = sub_args.get_one("task").unwrap(); // required argument
+                core::end_task(&conn, task)
             }
         }
         Some(("list", sub_args)) => {

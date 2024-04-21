@@ -1,3 +1,4 @@
+use clap::builder::NonEmptyStringValueParser;
 use clap::{command, Arg, ArgAction, ArgMatches, Command};
 
 pub fn match_cli() -> ArgMatches {
@@ -10,13 +11,15 @@ pub fn match_cli() -> ArgMatches {
                 .arg(
                     Arg::new("task")
                         .help("Name of the task to start")
+                        .value_parser(NonEmptyStringValueParser::new())
                         .required(true),
                 )
                 .arg(
                     Arg::new("category")
                         .help("Specify a category for the new task.")
                         .short('c')
-                        .long("category"),
+                        .long("category")
+                        .value_parser(NonEmptyStringValueParser::new()),
                 ),
         )
         .subcommand(
@@ -25,20 +28,24 @@ pub fn match_cli() -> ArgMatches {
                 .arg(
                     Arg::new("task")
                         .help("Name of the task to end.")
-                        .required_unless_present("all"),
+                        .value_parser(NonEmptyStringValueParser::new())
+                        .required_unless_present_any(["all", "last"])
+                        .exclusive(true),
                 )
                 .arg(
                     Arg::new("last")
                         .short('l')
                         .long("last")
                         .help("Ends the active task that was started most recently.")
-                        .action(ArgAction::SetTrue),
+                        .action(ArgAction::SetTrue)
+                        .exclusive(true),
                 )
                 .arg(
                     Arg::new("all")
                         .long("all")
                         .help("Ends all active tasks. Overrides a task name if one is given.")
-                        .action(ArgAction::SetTrue),
+                        .action(ArgAction::SetTrue)
+                        .exclusive(true),
                 ),
         )
         .subcommand(
@@ -50,8 +57,7 @@ pub fn match_cli() -> ArgMatches {
                         .long("active")
                         .help("List the active tasks.")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with("completed")
-                        .conflicts_with("all"),
+                        .conflicts_with_all(["all", "completed"]),
                 )
                 .arg(
                     Arg::new("completed")
@@ -60,20 +66,36 @@ pub fn match_cli() -> ArgMatches {
                         .long("complete")
                         .alias("completed")
                         .action(ArgAction::SetTrue)
-                        .conflicts_with("active")
-                        .conflicts_with("all"),
+                        .conflicts_with_all(["active", "all"]),
                 )
                 .arg(
                     Arg::new("all")
                         .help("List all tasks.")
                         .long("all")
-                        .action(ArgAction::SetTrue),
+                        .action(ArgAction::SetTrue)
+                        .conflicts_with_all(["active", "completed"]),
                 )
                 .arg(
                     Arg::new("filter")
                         .help("Apply a time range filter to the list of tasks.")
                         .short('f')
-                        .long("filter"),
+                        .long("filter")
+                        // see src/core/filters.rs
+                        .value_parser([
+                            "d",
+                            "day",
+                            "w",
+                            "week",
+                            "m",
+                            "month",
+                            "q",
+                            "quarter",
+                            "s",
+                            "semi",
+                            "semiannual",
+                            "y",
+                            "year",
+                        ]),
                 ),
         )
         .subcommand(
@@ -83,13 +105,29 @@ pub fn match_cli() -> ArgMatches {
                     Arg::new("filter")
                         .help("Only total tasks within the time range specified by a filter.")
                         .short('f')
-                        .long("filter"),
+                        .long("filter")
+                        .value_parser([
+                            "d",
+                            "day",
+                            "w",
+                            "week",
+                            "m",
+                            "month",
+                            "q",
+                            "quarter",
+                            "s",
+                            "semi",
+                            "semiannual",
+                            "y",
+                            "year",
+                        ]),
                 )
                 .arg(
                     Arg::new("category")
                         .help("Only total tasks in specified categories.")
                         .short('c')
-                        .long("category"),
+                        .long("category")
+                        .value_parser(NonEmptyStringValueParser::new()),
                 ),
         )
         .get_matches();
