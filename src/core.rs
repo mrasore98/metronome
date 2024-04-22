@@ -21,7 +21,7 @@ pub enum MetronomeResults {
     EndNoneActive,               // Returned when ending a task, but there are no tasks to end
     EndAllActive(usize),         // Returns number of activities ended
     List(usize),                 // Returns number of rows in the list
-    SumTaskTimes,
+    SumTaskTimes(i64),           // Returns total number of seconds for all tasks
 }
 
 pub fn create_task_table(connection: &Connection) -> rusqlite::Result<MetronomeResults> {
@@ -231,9 +231,9 @@ pub fn sum_task_times(
     }
 
     // Print results
-    print_total_time_rows(rows)?;
+    let sum_total_s = print_total_time_rows(rows)?;
 
-    Ok(SumTaskTimes)
+    Ok(SumTaskTimes(sum_total_s))
 }
 
 // HELPER FUNCTIONS
@@ -315,13 +315,13 @@ fn print_list_rows(mut rows: Rows) -> rusqlite::Result<usize> {
     Ok(row_count)
 }
 
-fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<()> {
+fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<i64> {
     let headers = ("CATEGORY", "TOTAL TIME", "PERCENTAGE");
     println!(
-        "| {:^20} | {:^15} | {:^12}",
+        "| {:^20} | {:^15} | {:^12} |",
         headers.0, headers.1, headers.2
     );
-    println!("{}", "=".repeat(55));
+    println!("{}", "=".repeat(57));
 
     let mut total_time_sum = 0;
     let mut category_vec = vec![];
@@ -339,21 +339,21 @@ fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<()> {
         let time_s = total_time_s.clone(); // Avoid borrowing issues
         let total_time_fmt = TaskTime::from(time_s).to_string();
         println!(
-            "| {:^20} | {:^15} | {:^12.2}",
+            "| {:^20} | {:^15} | {:^12.2} |",
             category,
             total_time_fmt,
             (time_s as f32 / total_time_sum as f32) * 100f32
         );
     }
-    println!("{}", "=".repeat(55));
+    println!("{}", "=".repeat(57));
     println!(
-        "| {:^20} | {:^15} | {:^12.2}",
+        "| {:^20} | {:^15} | {:^12.2} |",
         "TOTAL",
         TaskTime::from(total_time_sum).to_string(),
         100f32
     );
 
-    Ok(())
+    Ok(total_time_sum)
 }
 
 #[cfg(test)]
@@ -641,7 +641,6 @@ mod tests {
         let tasks_to_start = vec!["Task_A", "Task_B", "Task_C", "Task_D", "Task_E"];
         for task in &tasks_to_start {
             let task = task.to_string();
-            // TODO Ensure category is correct in output
             let category = format!("Category_{}", task);
             start_task(&conn, &task, Some(&category))?;
         }
@@ -703,9 +702,11 @@ mod tests {
 
         stmt.finalize()?;
 
-        let total_enum = sum_task_times(&conn, Filter::All, None)?;
+        let SumTaskTimes(total_time) = sum_task_times(&conn, Filter::All, None)? else {
+            panic!("SumTaskTimes enum was not returned.")
+        };
 
-        assert_eq!(SumTaskTimes, total_enum);
+        assert_eq!((300 + 65 + 1800 + 4500 + 600), total_time);
 
         teardown(conn);
 
@@ -808,6 +809,53 @@ mod tests {
 
     #[test]
     fn test_filtered_total() -> rusqlite::Result<()> {
-        todo!()
+        let conn = setup()?;
+
+        // Create tasks and make sure they are completed
+        filter_test_helper(&conn)?;
+        end_all_active(&conn)?;
+
+        // Apply Month filter to sum_task_times
+        let SumTaskTimes(total_time) = sum_task_times(&conn, Filter::Month, None)? else {
+            panic!("SumTaskTimes enum was not returned.")
+        };
+
+        // Sum of tasks "Day", "Week", "Month" from filter_test_helper
+        let expected_time =
+            (TimeDelta::seconds(3600 * 22) + TimeDelta::days(5) + TimeDelta::days(25))
+                .num_seconds();
+        assert!((expected_time - total_time).abs() < 5);
+
+        teardown(conn);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_category_total() -> rusqlite::Result<()> {
+        let conn = setup()?;
+
+        // Create tasks and make sure they are completed
+        filter_test_helper(&conn)?;
+        end_all_active(&conn)?;
+
+        let SumTaskTimes(total_time) =
+            sum_task_times(&conn, Filter::All, Some(&String::from("Category B")))?
+        else {
+            panic!("SumTaskTimes enum was not returned.")
+        };
+
+        // Sum of tasks "Within a Year", "Month" from filter_test_helper (Category B only)
+        let expected_time = (TimeDelta::days(300) + TimeDelta::days(25)).num_seconds();
+
+        println!(
+            "Expected time: {}, Returned time: {}",
+            expected_time, total_time
+        );
+        assert!((expected_time - total_time).abs() <= 2);
+
+        teardown(conn);
+
+        Ok(())
     }
 }
