@@ -4,6 +4,7 @@ mod tasktime;
 use chrono::{DateTime, Local, TimeDelta};
 use fallible_streaming_iterator::FallibleStreamingIterator; // Needed to count returned SQLite Rows
 use rusqlite::{params, Connection, Rows, Statement};
+use std::iter::zip;
 
 use self::MetronomeResults::*;
 
@@ -315,19 +316,42 @@ fn print_list_rows(mut rows: Rows) -> rusqlite::Result<usize> {
 }
 
 fn print_total_time_rows(mut rows: Rows) -> rusqlite::Result<()> {
-    let headers = ("CATEGORY", "TOTAL TIME");
-    println!("| {:^20} | {:^15} |", headers.0, headers.1);
-    println!("{}", "=".repeat(42));
+    let headers = ("CATEGORY", "TOTAL TIME", "PERCENTAGE");
+    println!(
+        "| {:^20} | {:^15} | {:^12}",
+        headers.0, headers.1, headers.2
+    );
+    println!("{}", "=".repeat(55));
 
+    let mut total_time_sum = 0;
+    let mut category_vec = vec![];
+    let mut time_vec = vec![];
     while let Some(row) = rows.next()? {
         let category: String = row.get(0)?;
         let total_time_s: i64 = row.get(1)?;
-
-        // Format from total seconds to h m d format
-        let total_time_fmt = TaskTime::from(total_time_s).to_string();
-
-        println!("| {:^20} | {:^15} |", category, total_time_fmt);
+        total_time_sum += total_time_s;
+        category_vec.push(category);
+        time_vec.push(total_time_s);
     }
+
+    for (category, total_time_s) in zip(&category_vec, &time_vec) {
+        // Format from total seconds to h m d format
+        let time_s = total_time_s.clone(); // Avoid borrowing issues
+        let total_time_fmt = TaskTime::from(time_s).to_string();
+        println!(
+            "| {:^20} | {:^15} | {:^12.2}",
+            category,
+            total_time_fmt,
+            (time_s as f32 / total_time_sum as f32) * 100f32
+        );
+    }
+    println!("{}", "=".repeat(55));
+    println!(
+        "| {:^20} | {:^15} | {:^12.2}",
+        "TOTAL",
+        TaskTime::from(total_time_sum).to_string(),
+        100f32
+    );
 
     Ok(())
 }

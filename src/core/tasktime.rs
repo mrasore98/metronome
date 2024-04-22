@@ -2,9 +2,12 @@ use std::fmt::Display;
 
 #[derive(Debug, PartialEq)]
 pub struct TaskTime {
+    // Time data for the task for recording duration in H:M:S form
     hours: i64,
     minutes: i64,
     seconds: i64,
+    // Number of total seconds for the task
+    raw: i64,
 }
 
 impl From<i64> for TaskTime {
@@ -19,6 +22,7 @@ impl From<i64> for TaskTime {
             hours,
             minutes,
             seconds,
+            raw: total_seconds,
         }
     }
 }
