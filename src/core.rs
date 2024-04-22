@@ -5,7 +5,8 @@ use chrono::{DateTime, Local, TimeDelta};
 use fallible_streaming_iterator::FallibleStreamingIterator; // Needed to count returned SQLite Rows
 use rusqlite::{params, Connection, Rows, Statement};
 
-use self::MetronomeResults::{CreateTable, EndTask, List, StartTask, SumTaskTimes};
+use self::MetronomeResults::*;
+
 use filters::Filter;
 use tasktime::TaskTime;
 
@@ -16,6 +17,7 @@ pub enum MetronomeResults {
     CreateTable,
     StartTask(i64),              // Returns start timestamp
     EndTask(i64, i64, TaskTime), // Returns end timestamp, total time in seconds, TaskTime from total time
+    EndNoneActive,               // Returned when ending a task, but there are no tasks to end
     EndAllActive(usize),         // Returns number of activities ended
     List(usize),                 // Returns number of rows in the list
     SumTaskTimes,
@@ -70,38 +72,61 @@ pub fn start_task(
 // END FUNCTIONS
 pub fn end_task(connection: &Connection, task_name: &String) -> rusqlite::Result<MetronomeResults> {
     let end_time_dt = Local::now();
-    let end_time = end_time_dt.timestamp();
 
-    println!(
-        "Ending task \"{}\" at {}",
-        task_name,
-        end_time_dt.format("%c")
-    );
     let mut stmt = connection.prepare("SELECT start_time FROM tasks WHERE name = ?")?;
+    let start_time_result: Result<i64, _> = stmt.query_row(params![task_name], |row| row.get(0));
 
-    let start_time: i64 = stmt.query_row(params![task_name], |row| row.get(0))?;
-    let total_time = end_time - start_time;
-    let status = "Complete";
+    match start_time_result {
+        Ok(start_time) => {
+            println!(
+                "Ending task \"{}\" at {}",
+                task_name,
+                end_time_dt.format("%c")
+            );
 
-    connection.execute(
-        "UPDATE tasks SET end_time = ?1, total_time = ?2, status = ?3 WHERE name = ?4",
-        params![end_time, total_time, status, task_name],
-    )?;
+            let end_time = end_time_dt.timestamp();
+            let total_time = end_time - start_time;
+            let status = "Complete";
 
-    let task_time = TaskTime::from(total_time);
+            connection.execute(
+                "UPDATE tasks SET end_time = ?1, total_time = ?2, status = ?3 WHERE name = ?4",
+                params![end_time, total_time, status, task_name],
+            )?;
 
-    println!("Task \"{}\" ended after {}", task_name, task_time);
+            let task_time = TaskTime::from(total_time);
 
-    Ok(EndTask(end_time, total_time, task_time))
+            println!("Task \"{}\" ended after {}", task_name, task_time);
+
+            Ok(EndTask(end_time, total_time, task_time))
+        }
+        Err(e) => {
+            if e == rusqlite::Error::QueryReturnedNoRows {
+                println!("{} is not an active task!", task_name);
+                Ok(EndNoneActive)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 pub fn end_last(connection: &Connection) -> rusqlite::Result<MetronomeResults> {
-    let last_task: String = connection.query_row(
+    let last_task_result = connection.query_row(
         "SELECT name FROM tasks WHERE start_time = (SELECT MAX(start_time) FROM tasks WHERE status = 'Active')",
         (),
         |row| row.get(0),
-    )?;
-    end_task(&connection, &last_task)
+    );
+    match last_task_result {
+        Ok(last_task) => end_task(&connection, &last_task),
+        Err(e) => {
+            if e == rusqlite::Error::QueryReturnedNoRows {
+                println!("No active tasks to end!");
+                Ok(EndNoneActive)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 pub fn end_all_active(connection: &Connection) -> rusqlite::Result<MetronomeResults> {
@@ -109,29 +134,34 @@ pub fn end_all_active(connection: &Connection) -> rusqlite::Result<MetronomeResu
     let end_time = end_time_dt.timestamp();
     let status = "Complete";
 
-    // Update the end time for use in calculating total time
-    connection.execute(
-        "UPDATE tasks SET end_time = ?1 WHERE status = 'Active'",
-        params![end_time],
-    )?;
-
     //Get the number of active tasks
     let mut stmt = connection.prepare("SELECT * FROM tasks WHERE status = 'Active'")?;
     let num_ended_tasks = stmt.query(())?.count()?;
     stmt.finalize()?;
 
-    // Update total time and set status to complete
-    connection.execute(
-"UPDATE tasks SET total_time = (end_time - start_time), status = ?1 WHERE status = 'Active'",
-    params![status])?;
+    // Only update tasks as needed
+    if num_ended_tasks > 0 {
+        // Update the end time for use in calculating total time
+        connection.execute(
+            "UPDATE tasks SET end_time = ?1 WHERE status = 'Active'",
+            params![end_time],
+        )?;
 
-    println!(
-        "Ended {} active tasks at {}.",
-        num_ended_tasks,
-        end_time_dt.format("%c")
-    );
+        // Update total time and set status to complete
+        connection.execute(
+            "UPDATE tasks SET total_time = (end_time - start_time), status = ?1 WHERE status = 'Active'",
+            params![status])?;
 
-    Ok(MetronomeResults::EndAllActive(num_ended_tasks))
+        println!(
+            "Ended {} active tasks at {}.",
+            num_ended_tasks,
+            end_time_dt.format("%c")
+        );
+        Ok(EndAllActive(num_ended_tasks))
+    } else {
+        println!("No active tasks to end.");
+        Ok(EndNoneActive)
+    }
 }
 
 // LIST FUNCTIONS
@@ -490,7 +520,7 @@ mod tests {
 
         // End all active tasks
         let num_ended = match end_all_active(&conn)? {
-            MetronomeResults::EndAllActive(ended) => ended,
+            EndAllActive(ended) => ended,
             _ => panic!("Unexpected enum returned from end_all_active call."),
         };
 
@@ -724,7 +754,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn test_filtered_results() -> rusqlite::Result<()> {
+    fn test_filtered_list() -> rusqlite::Result<()> {
         let conn = setup()?;
 
         filter_test_helper(&conn)?;
@@ -750,5 +780,10 @@ mod tests {
         teardown(conn);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_filtered_total() -> rusqlite::Result<()> {
+        todo!()
     }
 }
