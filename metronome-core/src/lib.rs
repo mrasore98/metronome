@@ -1,17 +1,29 @@
-pub(crate) mod filters;
+pub mod filters;
 mod tasktime;
+
+use std::env;
+use std::iter::zip;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local, TimeDelta};
 use fallible_streaming_iterator::FallibleStreamingIterator; // Needed to count returned SQLite Rows
 use rusqlite::{params, Connection, Rows, Statement};
-use std::iter::zip;
 
 use self::MetronomeResults::*;
-
 use filters::Filter;
 use tasktime::TaskTime;
 
-pub const DB_NAME: &str = "tasks.db";
+// TODO make database location configurable
+pub fn set_database_location() -> String {
+    let mut db_location = String::new();
+    if cfg!(target_os = "windows") {
+        db_location = env::var_os("USERPROFILE").unwrap().into_string().unwrap();
+    } else if cfg!(target_os = "macos") || cfg!(target_os = "linux") {
+        db_location = env::var_os("HOME").unwrap().into_string().unwrap();
+    }
+
+    db_location + "/metronome.db"
+}
 
 #[derive(Debug, PartialEq)]
 pub enum MetronomeResults {

@@ -1,12 +1,12 @@
 mod cli;
-mod core;
 
-use core::filters::Filter;
+use metronome_core::{filters::Filter, set_database_location};
 use rusqlite::Connection;
 
 fn main() -> rusqlite::Result<()> {
-    let conn = Connection::open(core::DB_NAME)?;
-    core::create_task_table(&conn)?; // Only created if it does not yet exist
+    let db_loc = set_database_location();
+    let conn = Connection::open(db_loc)?;
+    metronome_core::create_task_table(&conn)?; // Only created if it does not yet exist
 
     let matches = cli::match_cli();
 
@@ -14,31 +14,31 @@ fn main() -> rusqlite::Result<()> {
         Some(("start", sub_args)) => {
             let task: &String = sub_args.get_one("task").unwrap(); // required argument
             let category = sub_args.get_one("category");
-            core::start_task(&conn, task, category)
+            metronome_core::start_task(&conn, task, category)
         }
         Some(("end", sub_args)) => {
             if sub_args.get_flag("all") {
-                core::end_all_active(&conn)
+                metronome_core::end_all_active(&conn)
             } else if sub_args.get_flag("last") {
-                core::end_last(&conn)
+                metronome_core::end_last(&conn)
             } else {
                 let task: &String = sub_args.get_one("task").unwrap(); // required argument
-                core::end_task(&conn, task)
+                metronome_core::end_task(&conn, task)
             }
         }
         Some(("list", sub_args)) => {
             let filter = Filter::from(sub_args.get_one("filter"));
             if sub_args.get_flag("active") {
-                core::list_active(&conn, filter)
+                metronome_core::list_active(&conn, filter)
             } else if sub_args.get_flag("completed") {
-                core::list_complete(&conn, filter)
+                metronome_core::list_complete(&conn, filter)
             } else {
-                core::list_all(&conn, filter)
+                metronome_core::list_all(&conn, filter)
             }
         }
         Some(("total", sub_args)) => {
             let filter = Filter::from(sub_args.get_one::<String>("filter"));
-            core::sum_task_times(&conn, filter, sub_args.get_one("category"))
+            metronome_core::sum_task_times(&conn, filter, sub_args.get_one("category"))
         }
         _ => {
             // TODO automatically show help menu and exit
@@ -47,7 +47,7 @@ fn main() -> rusqlite::Result<()> {
     }?;
 
     conn.close()
-        .expect(format!("Could not close connection to {}", core::DB_NAME).as_str());
+        .expect(format!("Could not close connection to {}", db_loc).as_str());
 
     Ok(())
 }
