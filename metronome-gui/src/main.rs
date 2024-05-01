@@ -10,7 +10,7 @@ fn main() -> iced::Result {
 enum Page {
     Start,
     ActiveList,
-    EndLast,
+    End,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -31,6 +31,7 @@ enum Message {
     EditCategoryName(String),
     StartNewTask,
     EndLastTask,
+    EndAllActive,
 }
 
 impl Sandbox for Metronome {
@@ -69,6 +70,10 @@ impl Sandbox for Metronome {
                 metronome_core::end_last(&conn).expect("");
                 self.num_tasks_active -= 1;
             }
+            Message::EndAllActive => {
+                metronome_core::end_all_active(&conn).expect("");
+                self.num_tasks_active = 0;
+            }
         }
     }
 
@@ -76,7 +81,7 @@ impl Sandbox for Metronome {
         let tabs: Row<Message> = row![
             button("Start").on_press(Message::ChangeTab(Page::Start)),
             button("Active Tasks").on_press(Message::ChangeTab(Page::ActiveList)),
-            button("End").on_press(Message::ChangeTab(Page::EndLast)),
+            button("End").on_press(Message::ChangeTab(Page::End)),
             horizontal_space()
         ]
         .padding(20);
@@ -93,9 +98,10 @@ impl Sandbox for Metronome {
                 button("Start Task").on_press(Message::StartNewTask)
             ]),
             Page::ActiveList => container(column![text("On the active list page"),]),
-            Page::EndLast => container(column![
-                button("End last task").on_press(Message::EndLastTask)
-            ]),
+            Page::End => container(column![row![
+                button("End last task").on_press(Message::EndLastTask),
+                button("End all").on_press(Message::EndAllActive)
+            ]]),
         };
 
         let page_contents = page_contents
