@@ -1,7 +1,8 @@
 use iced::widget::{
-    button, column, container, horizontal_space, row, text, text_input, Column, Row,
+    button, column, container, horizontal_space, row, text, text_input, vertical_space, Column, Row,
 };
 use iced::{Element, Length, Sandbox, Settings};
+
 fn main() -> iced::Result {
     Metronome::run(Settings::default())
 }
@@ -68,7 +69,6 @@ impl Sandbox for Metronome {
                 metronome_core::end_last(&conn).expect("");
                 self.num_tasks_active -= 1;
             }
-            _ => todo!(),
         }
     }
 
@@ -76,23 +76,33 @@ impl Sandbox for Metronome {
         let tabs: Row<Message> = row![
             button("Start").on_press(Message::ChangeTab(Page::Start)),
             button("Active Tasks").on_press(Message::ChangeTab(Page::ActiveList)),
+            button("End").on_press(Message::ChangeTab(Page::EndLast)),
             horizontal_space()
         ];
 
-        // TODO Define elements by page
+        // Define elements by page
         let page_contents = match self.page {
-            Page::Start => column![
+            Page::Start => container(column![
                 text("Start a new task."),
                 text_input("Task Name", &self.new_task_info.name)
                     .on_input(Message::EditTaskName)
                     .on_submit(Message::StartNewTask),
                 text_input("Category (Optional)", &self.new_task_info.category)
                     .on_input(Message::EditCategoryName),
-                button("Start Task")
-            ],
-            Page::ActiveList => column![text("On the active list page"),],
-            Page::EndLast => column![button("End last task").on_press(Message::EndLastTask)],
+                button("Start Task").on_press(Message::StartNewTask)
+            ]),
+            Page::ActiveList => container(column![text("On the active list page"),]),
+            Page::EndLast => container(column![
+                button("End last task").on_press(Message::EndLastTask)
+            ]),
         };
+
+        let page_contents = page_contents
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x()
+            .center_y()
+            .padding(20);
 
         let contents: Column<Message> = column![tabs, page_contents,].into();
 
