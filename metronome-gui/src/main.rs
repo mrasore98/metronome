@@ -1,5 +1,5 @@
 use iced::widget::{
-    button, column, container, horizontal_space, row, text, text_input, vertical_space, Column, Row,
+    button, column, container, horizontal_space, row, text, text_input, Column, Row,
 };
 use iced::{Element, Length, Sandbox, Settings};
 
@@ -78,7 +78,8 @@ impl Sandbox for Metronome {
             button("Active Tasks").on_press(Message::ChangeTab(Page::ActiveList)),
             button("End").on_press(Message::ChangeTab(Page::EndLast)),
             horizontal_space()
-        ];
+        ]
+        .padding(20);
 
         // Define elements by page
         let page_contents = match self.page {

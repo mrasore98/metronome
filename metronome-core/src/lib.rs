@@ -3,7 +3,6 @@ mod tasktime;
 
 use std::env;
 use std::iter::zip;
-use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local, TimeDelta};
 use fallible_streaming_iterator::FallibleStreamingIterator; // Needed to count returned SQLite Rows
