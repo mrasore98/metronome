@@ -1,5 +1,5 @@
 use iced::widget::{
-    button, column, container, horizontal_space, row, text, text_input, Column, Row,
+    button, column, container, horizontal_space, row, text, text_input, vertical_space, Column, Row,
 };
 use iced::{Element, Length, Sandbox, Settings};
 
@@ -10,7 +10,7 @@ fn main() -> iced::Result {
 enum Page {
     Start,
     ActiveList,
-    End,
+    CompleteList,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -81,7 +81,7 @@ impl Sandbox for Metronome {
         let tabs: Row<Message> = row![
             button("Start").on_press(Message::ChangeTab(Page::Start)),
             button("Active Tasks").on_press(Message::ChangeTab(Page::ActiveList)),
-            button("End").on_press(Message::ChangeTab(Page::End)),
+            button("Complete Tasks").on_press(Message::ChangeTab(Page::CompleteList)),
             horizontal_space()
         ]
         .padding(20);
@@ -97,11 +97,18 @@ impl Sandbox for Metronome {
                     .on_input(Message::EditCategoryName),
                 button("Start Task").on_press(Message::StartNewTask)
             ]),
-            Page::ActiveList => container(column![text("On the active list page"),]),
-            Page::End => container(column![row![
-                button("End last task").on_press(Message::EndLastTask),
-                button("End all").on_press(Message::EndAllActive)
-            ]]),
+            Page::ActiveList => container(column![
+                vertical_space(),
+                text("On the active list page"),
+                vertical_space(),
+                row![
+                    horizontal_space(),
+                    // TODO make buttons unclickable if no active tasks
+                    button("End last task").on_press(Message::EndLastTask),
+                    button("End all").on_press(Message::EndAllActive)
+                ],
+            ]),
+            Page::CompleteList => container(column![text("On the complete list page")]),
         };
 
         let page_contents = page_contents
