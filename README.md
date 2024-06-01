@@ -115,7 +115,7 @@ Options:
 
 Input:
 ```
-metronome list --complete -f week
+metronome list --active -f week
 ```
 
 Output:
